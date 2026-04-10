@@ -1,6 +1,7 @@
 {
   "name": "job-finder-plugin",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Job Search and CV Analysis Plugin for Tengra",
   "author": {
     "name": "TengraStudio"
