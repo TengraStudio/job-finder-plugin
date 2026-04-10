@@ -1,6 +1,6 @@
 {
   "name": "job-finder-plugin",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "license": "MIT",
   "description": "Job Search and CV Analysis Plugin for Tengra",
   "author": {
@@ -9,7 +9,25 @@
   "main": "./dist/extension.js",
   "tengra": {
     "id": "tengrastudio.job-finder",
+    "name": "Job Finder",
+    "description": "AI-assisted CV profiling and multi-country job search.",
+    "category": "productivity",
+    "keywords": [
+      "jobs",
+      "cv",
+      "career",
+      "ai"
+    ],
     "ui": "dist/ui/job-finder-view.js",
+    "permissions": [
+      "filesystem",
+      "network",
+      "ai"
+    ],
+    "capabilities": [
+      "ui-panel",
+      "command"
+    ],
     "contributes": {
       "views": [
         {
@@ -21,11 +39,14 @@
       ]
     },
     "activationEvents": [
-      { "type": "onStartup" }
+      {
+        "type": "onStartup"
+      }
     ]
   },
   "scripts": {
-    "build": "npm run build:ui",
+    "build": "npm run build:extension && npm run build:ui",
+    "build:extension": "esbuild src/extension.ts --bundle --format=cjs --platform=node --target=node18 --outfile=dist/extension.js",
     "build:ui": "esbuild src/ui/JobFinderView.tsx --bundle --format=esm --platform=browser --target=es2020 --outfile=dist/ui/job-finder-view.js"
   },
   "dependencies": {
@@ -34,6 +55,8 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "esbuild": "^0.25.11",
     "typescript": "^5.0.0"
   }

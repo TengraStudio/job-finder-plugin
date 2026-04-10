@@ -1,36 +1,41 @@
-import { ExtensionContext, ExtensionModule } from '@shared/types/extension';
-import { appLogger } from '@main/logging/logger';
+interface ExtensionContext {
+    subscriptions: Array<{ dispose(): void }>;
+    logger: {
+        info(message: string, ...args: unknown[]): void;
+        warn(message: string, ...args: unknown[]): void;
+        error(message: string, error?: Error): void;
+    };
+    commands?: {
+        registerCommand(commandId: string, handler: (...args: unknown[]) => unknown | Promise<unknown>): { dispose(): void };
+    };
+}
 
-/**
- * Job Finder Extension Entry Point (Main Process)
- */
 export const activate = (context: ExtensionContext) => {
-    appLogger.info('JobFinder', 'Activating Job Finder Extension...');
+    context.logger.info('Job Finder extension activated.');
 
-    // Register commands for job searching
-    context.commands.registerCommand('job-finder.search', async (params: any) => {
-        appLogger.info('JobFinder', 'Searching for jobs...', params);
-        // Scraping logic will be implemented here
-        return { success: true, jobs: [] };
+    const searchCommand = context.commands?.registerCommand('job-finder.search', async params => {
+        context.logger.info('Job Finder search requested.', params);
+        return {
+            success: false,
+            reason: 'Use the Job Finder view. The pipeline runs in the renderer through Tengra AI and file bridges.'
+        };
     });
 
-    // Register command for CV analysis
-    context.commands.registerCommand('job-finder.analyze-cv', async (cvContent: string) => {
-        appLogger.info('JobFinder', 'Analyzing CV...');
-        // AI analysis logic will be implemented here using context.ai
-        return { success: true, atsScore: 85, suggestions: [] };
+    const analyzeCommand = context.commands?.registerCommand('job-finder.analyze-cv', async () => {
+        context.logger.info('Job Finder CV analysis requested.');
+        return {
+            success: false,
+            reason: 'Use the Job Finder view so the selected Tengra model can be passed with the request.'
+        };
     });
 
-    appLogger.info('JobFinder', 'Job Finder Extension Activated successfully.');
+    void searchCommand;
+    void analyzeCommand;
 };
 
-export const deactivate = () => {
-    appLogger.info('JobFinder', 'Job Finder Extension Deactivating...');
-};
+export const deactivate = () => undefined;
 
-const extension: ExtensionModule = {
+export default {
     activate,
     deactivate
 };
-
-export default extension;

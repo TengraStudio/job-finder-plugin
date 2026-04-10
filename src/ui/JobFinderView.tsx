@@ -1,114 +1,193 @@
-import { BadgeCheck, BriefcaseBusiness, FileText, Globe2, Loader2, Search } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import {
+    BriefcaseBusiness,
+    CheckCircle2,
+    ExternalLink,
+    FileText,
+    Loader2,
+    Search,
+    Sparkles,
+    Upload
+} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-interface JobFinderMatch {
-    score: number;
-    reasons: string[];
-    fit: string;
+import type {
+    AvailableModel,
+    CvDraft,
+    CvProfile,
+    JobFinderPipelineResult,
+    RemotePreference,
+    SearchPreferences,
+    SelectedModel
+} from '../types';
+import {
+    buildCvTextFromDraft,
+    createProfile,
+    exportDraftToPdf,
+    mergeSearchCountries
+} from '../services/cvService';
+import { searchAndRankJobs } from '../services/jobService';
+import { listTengraModels } from '../services/tengraAiClient';
+
+type CvMode = 'pdf' | 'builder';
+
+const emptyDraft: CvDraft = {
+    fullName: '',
+    headline: '',
+    email: '',
+    phone: '',
+    location: '',
+    summary: '',
+    skills: '',
+    experience: '',
+    education: '',
+    links: ''
+};
+
+const remoteOptions: Array<{ value: RemotePreference; label: string }> = [
+    { value: 'any', label: 'Any' },
+    { value: 'remote', label: 'Remote' },
+    { value: 'hybrid', label: 'Hybrid' },
+    { value: 'on-site', label: 'On-site' }
+];
+
+function fieldClass(): string {
+    return 'w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary';
 }
 
-interface JobFinderJob {
-    id: string;
-    title: string;
-    company: string;
-    location: string;
-    source: string;
-    url: string;
-    salaryRange?: string;
-    employmentType?: string;
-    postedAt?: string;
-    skills: string[];
-    remote?: boolean;
-    match: JobFinderMatch;
-}
-
-interface JobFinderPipelineResult {
-    cvProfile: {
-        summary: string;
-        skills: string[];
-        preferredLocations: string[];
-        preferredCountries: string[];
-        remotePreference: string;
-        targetRoles: string[];
-    };
-    jobs: JobFinderJob[];
-    rankedJobs: JobFinderJob[];
-    aiSummary: string;
-    fetchedAt: string;
-}
-
-interface TengraBridge {
-    registerExtensionComponent: (viewId: string, component: React.ComponentType<Record<string, unknown>>) => void;
-}
-
-interface TengraElectron {
-    jobFinder: {
-        parseCvPdf: (filePath: string) => Promise<{ text: string }>;
-        run: (cvText: string) => Promise<JobFinderPipelineResult>;
-    };
-    selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<{ canceled?: boolean; filePaths?: string[] }>;
-    modelRegistry?: {
-        getInstalledModels: () => Promise<Array<{ name: string; localPath?: string; path?: string }>>;
-    };
-    llama?: {
-        chat: (messages: Array<{ role: 'system' | 'user'; content: string }>, modelPath: string) => Promise<{ content: string; done: boolean }>;
-    };
-}
-
-declare global {
-    interface Window {
-        Tengra?: TengraBridge;
-        electron?: TengraElectron;
-    }
+function labelClass(): string {
+    return 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 }
 
 export const JobFinderView: React.FC<Record<string, unknown>> = () => {
+    const [models, setModels] = useState<AvailableModel[]>([]);
+    const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
+    const [cvMode, setCvMode] = useState<CvMode>('pdf');
     const [cvText, setCvText] = useState('');
+    const [cvDraft, setCvDraft] = useState<CvDraft>(emptyDraft);
+    const [profile, setProfile] = useState<CvProfile | null>(null);
+    const [countriesInput, setCountriesInput] = useState('Germany, Netherlands, United Kingdom');
+    const [targetRole, setTargetRole] = useState('');
+    const [remotePreference, setRemotePreference] = useState<RemotePreference>('any');
+    const [limitPerCountry, setLimitPerCountry] = useState(25);
     const [loading, setLoading] = useState(false);
+    const [status, setStatus] = useState('Ready');
     const [error, setError] = useState<string | null>(null);
+    const [pdfPath, setPdfPath] = useState<string | null>(null);
     const [result, setResult] = useState<JobFinderPipelineResult | null>(null);
 
-    const topJob = result?.rankedJobs[0] ?? null;
+    useEffect(() => {
+        void listTengraModels().then(items => {
+            setModels(items);
+            const first = items[0];
+            if (first) {
+                setSelectedModel({
+                    provider: first.provider || 'ollama',
+                    model: first.id || first.name || first.path || first.localPath || ''
+                });
+            }
+        });
+    }, []);
+
+    const modelValue = selectedModel ? `${selectedModel.provider}::${selectedModel.model}` : '';
+
     const averageScore = useMemo(() => {
-        if (!result || result.rankedJobs.length === 0) {
-            return 0;
-        }
+        if (!result?.rankedJobs.length) return 0;
         return Math.round(result.rankedJobs.reduce((sum, job) => sum + job.match.score, 0) / result.rankedJobs.length);
     }, [result]);
 
-    const loadPdf = async (): Promise<void> => {
+    const topSkills = profile?.skills.slice(0, 12) ?? [];
+
+    const updateDraft = (key: keyof CvDraft, value: string) => {
+        setCvDraft(prev => ({ ...prev, [key]: value }));
+    };
+
+    const loadPdf = async () => {
         setError(null);
-        const selected = await window.electron?.selectFile({ title: 'Select CV PDF', filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-        const filePath = selected?.filePaths?.[0];
-        if (!filePath) {
-            return;
-        }
-        const parsed = await window.electron?.jobFinder.parseCvPdf(filePath);
-        if (parsed?.text) {
-            setCvText(parsed.text);
+        const filePath = await window.electron?.files?.selectFile?.({
+            title: 'Select CV PDF',
+            filters: [{ name: 'PDF', extensions: ['pdf'] }]
+        });
+        if (!filePath) return;
+
+        setLoading(true);
+        setStatus('Reading PDF');
+        try {
+            const parsed = await window.electron?.files?.readPdf?.(filePath);
+            if (!parsed?.trim()) throw new Error('The selected PDF did not return readable text.');
+            setCvText(parsed);
+            setPdfPath(filePath);
+            setCvMode('pdf');
+            setStatus('PDF loaded');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to read PDF.');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const runAnalysis = async (): Promise<void> => {
-        setLoading(true);
+    const buildPdfFromInputs = async () => {
         setError(null);
+        setLoading(true);
+        setStatus('Creating CV PDF');
         try {
-            const pipeline = await window.electron?.jobFinder.run(cvText);
-            if (!pipeline) {
-                throw new Error('Job pipeline is unavailable.');
-            }
-            const installedModels = await window.electron?.modelRegistry?.getInstalledModels();
-            const modelPath = installedModels?.find(model => typeof model.localPath === 'string' || typeof model.path === 'string')?.localPath ?? installedModels?.find(model => typeof model.path === 'string')?.path;
-            if (modelPath && window.electron?.llama) {
-                const response = await window.electron.llama.chat([
-                    { role: 'system', content: 'Summarize the best job matches using only the provided ranked list. Do not invent jobs.' },
-                    { role: 'user', content: JSON.stringify({ cvProfile: pipeline.cvProfile, topJobs: pipeline.rankedJobs.slice(0, 5) }) },
-                ], modelPath);
-                pipeline.aiSummary = response.content || pipeline.aiSummary;
-            }
-            setResult(pipeline);
+            const text = buildCvTextFromDraft(cvDraft);
+            if (!text.trim()) throw new Error('Fill in the CV builder fields first.');
+            const path = await exportDraftToPdf(cvDraft);
+            setCvText(text);
+            setPdfPath(path);
+            setCvMode('builder');
+            setStatus('CV PDF created');
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Analysis failed');
+            setError(err instanceof Error ? err.message : 'Failed to create CV PDF.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const analyzeProfile = async (): Promise<CvProfile> => {
+        const text = cvMode === 'builder' ? buildCvTextFromDraft(cvDraft) : cvText;
+        if (!text.trim()) throw new Error('Load a CV PDF or create one from the form first.');
+        if (!selectedModel?.model) throw new Error('Select a Tengra model before analyzing the CV.');
+        setStatus('Analyzing CV with selected model');
+        const nextProfile = await createProfile(text, selectedModel);
+        setProfile(nextProfile);
+        if (!targetRole && nextProfile.targetRoles[0]) setTargetRole(nextProfile.targetRoles[0]);
+        if (countriesInput.trim() === '' && nextProfile.preferredCountries.length > 0) {
+            setCountriesInput(nextProfile.preferredCountries.join(', '));
+        }
+        if (remotePreference === 'any' && nextProfile.remotePreference !== 'any') {
+            setRemotePreference(nextProfile.remotePreference);
+        }
+        return nextProfile;
+    };
+
+    const runPipeline = async () => {
+        setError(null);
+        setLoading(true);
+        setResult(null);
+
+        try {
+            const nextProfile = await analyzeProfile();
+            const preferences: SearchPreferences = {
+                countries: mergeSearchCountries(countriesInput, nextProfile),
+                targetRole: targetRole || nextProfile.targetRoles[0] || '',
+                remotePreference,
+                limitPerCountry
+            };
+
+            setStatus(`Searching jobs in ${preferences.countries.join(', ') || 'Worldwide'}`);
+            const jobResult = await searchAndRankJobs(nextProfile, preferences, selectedModel);
+            setResult({
+                cvProfile: nextProfile,
+                jobs: jobResult.jobs,
+                rankedJobs: jobResult.rankedJobs,
+                aiSummary: jobResult.aiSummary,
+                fetchedAt: new Date().toISOString()
+            });
+            setStatus('Done');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Job Finder failed.');
+            setStatus('Failed');
         } finally {
             setLoading(false);
         }
@@ -116,81 +195,226 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
 
     return (
         <div className="h-full overflow-y-auto bg-background text-foreground">
-            <div className="mx-auto flex max-w-7xl flex-col gap-5 p-6">
-                <header className="rounded-2xl border border-border/40 bg-card/80 p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-primary/15 p-2 text-primary"><BriefcaseBusiness className="h-5 w-5" /></div>
-                            <div>
-                                <h1 className="text-lg font-semibold">Job Finder</h1>
-                                <p className="text-sm text-muted-foreground">CV parse + live job fetch + ranked shortlist</p>
-                            </div>
+            <div className="mx-auto flex max-w-6xl flex-col gap-5 p-5">
+                <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-5">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                            <BriefcaseBusiness className="h-5 w-5" />
                         </div>
-                        <button type="button" onClick={runAnalysis} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                            Analyze jobs
-                        </button>
+                        <div>
+                            <h1 className="text-2xl font-semibold tracking-tight">Job Finder</h1>
+                            <p className="text-sm text-muted-foreground">CV PDF, AI profile extraction, country-based job search.</p>
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        onClick={runPipeline}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        Run search
+                    </button>
                 </header>
 
-                <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-                    <div className="space-y-4 rounded-2xl border border-border/40 bg-card/80 p-5">
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2 text-sm font-semibold"><FileText className="h-4 w-4" /> CV input</div>
-                            <button type="button" onClick={loadPdf} className="rounded-lg border border-border/40 px-3 py-1.5 text-sm">Load PDF</button>
+                <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                    <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
+                        <div className="flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-primary" />
+                            <h2 className="font-semibold">1. Model</h2>
                         </div>
-                        <textarea value={cvText} onChange={event => setCvText(event.target.value)} placeholder="Paste CV text or load a PDF..." className="min-h-56 w-full rounded-xl border border-border/40 bg-background p-3 text-sm" />
-                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            {['Parse PDF', 'Normalize CV', 'Fetch live jobs', 'Rank results'].map(step => (
-                                <span key={step} className="rounded-full border border-border/40 px-3 py-1">{step}</span>
-                            ))}
-                        </div>
-                        {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-                    </div>
+                        <label className={labelClass()} htmlFor="model">Tengra model</label>
+                        <select
+                            id="model"
+                            className={fieldClass()}
+                            value={modelValue}
+                            onChange={event => {
+                                const [provider, model] = event.target.value.split('::');
+                                setSelectedModel({ provider: provider || 'ollama', model: model || '' });
+                            }}
+                        >
+                            {models.length === 0 ? (
+                                <option value="">No model found</option>
+                            ) : models.map(model => {
+                                const id = model.id || model.name || model.path || model.localPath || '';
+                                const provider = model.provider || 'ollama';
+                                return (
+                                    <option key={`${provider}-${id}`} value={`${provider}::${id}`}>
+                                        {provider} / {model.name || id}
+                                    </option>
+                                );
+                            })}
+                        </select>
 
-                    <aside className="space-y-4 rounded-2xl border border-border/40 bg-card/80 p-5">
-                        <div className="rounded-xl border border-primary/30 bg-primary/10 p-4">
-                            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary"><Globe2 className="h-4 w-4" />Live analysis</p>
-                            <p className="mt-2 text-3xl font-semibold">{averageScore}<span className="text-sm text-muted-foreground"> / 100</span></p>
-                            <p className="mt-1 text-sm text-muted-foreground">{result?.rankedJobs.length ?? 0} jobs ranked from live sources.</p>
+                        <div className="mt-3 flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-primary" />
+                            <h2 className="font-semibold">2. CV PDF</h2>
                         </div>
-                        {topJob && (
-                            <div className="rounded-xl border border-border/35 bg-background/40 p-4">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Top recommendation</p>
-                                <h3 className="mt-2 text-sm font-semibold">{topJob.title}</h3>
-                                <p className="text-xs text-muted-foreground">{topJob.company} • {topJob.location}</p>
-                                <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-                                    {topJob.match.reasons.map(reason => <div key={reason} className="rounded-lg border border-border/30 bg-background/70 px-2 py-1">{reason}</div>)}
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCvMode('pdf')}
+                                className={`rounded-lg border px-3 py-2 text-sm ${cvMode === 'pdf' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}
+                            >
+                                Existing PDF
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCvMode('builder')}
+                                className={`rounded-lg border px-3 py-2 text-sm ${cvMode === 'builder' ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}
+                            >
+                                Create CV
+                            </button>
+                        </div>
+
+                        {cvMode === 'pdf' ? (
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    type="button"
+                                    onClick={loadPdf}
+                                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted"
+                                >
+                                    <Upload className="h-4 w-4" />
+                                    Load PDF
+                                </button>
+                                <textarea
+                                    value={cvText}
+                                    onChange={event => setCvText(event.target.value)}
+                                    placeholder="PDF text will appear here. You can also paste CV text for testing."
+                                    className={`${fieldClass()} min-h-44 resize-y`}
+                                />
+                            </div>
+                        ) : (
+                            <div className="grid gap-3">
+                                <input className={fieldClass()} placeholder="Full name" value={cvDraft.fullName} onChange={event => updateDraft('fullName', event.target.value)} />
+                                <input className={fieldClass()} placeholder="Headline" value={cvDraft.headline} onChange={event => updateDraft('headline', event.target.value)} />
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <input className={fieldClass()} placeholder="Email" value={cvDraft.email} onChange={event => updateDraft('email', event.target.value)} />
+                                    <input className={fieldClass()} placeholder="Phone" value={cvDraft.phone} onChange={event => updateDraft('phone', event.target.value)} />
                                 </div>
+                                <input className={fieldClass()} placeholder="Location" value={cvDraft.location} onChange={event => updateDraft('location', event.target.value)} />
+                                <textarea className={`${fieldClass()} min-h-20`} placeholder="Professional summary" value={cvDraft.summary} onChange={event => updateDraft('summary', event.target.value)} />
+                                <textarea className={`${fieldClass()} min-h-20`} placeholder="Skills, comma separated" value={cvDraft.skills} onChange={event => updateDraft('skills', event.target.value)} />
+                                <textarea className={`${fieldClass()} min-h-28`} placeholder="Experience" value={cvDraft.experience} onChange={event => updateDraft('experience', event.target.value)} />
+                                <textarea className={`${fieldClass()} min-h-20`} placeholder="Education" value={cvDraft.education} onChange={event => updateDraft('education', event.target.value)} />
+                                <input className={fieldClass()} placeholder="Links" value={cvDraft.links} onChange={event => updateDraft('links', event.target.value)} />
+                                <button type="button" onClick={buildPdfFromInputs} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">
+                                    Create CV PDF
+                                </button>
                             </div>
                         )}
-                        {result && <p className="text-sm text-muted-foreground">{result.aiSummary}</p>}
-                    </aside>
-                </section>
 
-                <section className="rounded-2xl border border-border/40 bg-card/80 p-5">
-                    <div className="mb-4 flex items-center justify-between">
-                        <h2 className="text-sm font-semibold">Ranked jobs</h2>
-                        <span className="text-xs text-muted-foreground">{result?.rankedJobs.length ?? 0} results</span>
+                        {pdfPath && (
+                            <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                {pdfPath}
+                            </p>
+                        )}
                     </div>
-                    <div className="space-y-3">
-                        {(result?.rankedJobs ?? []).map(job => (
-                            <article key={job.id} className="rounded-xl border border-border/30 bg-background/50 p-4">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-sm font-semibold">{job.title}</p>
-                                        <p className="text-xs text-muted-foreground">{job.company} • {job.location} • {job.source}</p>
+
+                    <div className="flex flex-col gap-4">
+                        <section className="rounded-lg border border-border p-4">
+                            <h2 className="mb-4 font-semibold">3. Search preferences</h2>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                    <label className={labelClass()} htmlFor="countries">Countries</label>
+                                    <input
+                                        id="countries"
+                                        className={fieldClass()}
+                                        value={countriesInput}
+                                        onChange={event => setCountriesInput(event.target.value)}
+                                        placeholder="Germany, Netherlands, United Kingdom"
+                                    />
+                                </div>
+                                <div>
+                                    <label className={labelClass()} htmlFor="target-role">Target role</label>
+                                    <input
+                                        id="target-role"
+                                        className={fieldClass()}
+                                        value={targetRole}
+                                        onChange={event => setTargetRole(event.target.value)}
+                                        placeholder="Role to search for"
+                                    />
+                                </div>
+                                <div>
+                                    <label className={labelClass()} htmlFor="remote">Work mode</label>
+                                    <select id="remote" className={fieldClass()} value={remotePreference} onChange={event => setRemotePreference(event.target.value as RemotePreference)}>
+                                        {remoteOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={labelClass()} htmlFor="limit">Limit per country</label>
+                                    <input
+                                        id="limit"
+                                        className={fieldClass()}
+                                        type="number"
+                                        min={5}
+                                        max={100}
+                                        value={limitPerCountry}
+                                        onChange={event => setLimitPerCountry(Number(event.target.value) || 25)}
+                                    />
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="rounded-lg border border-border p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                    <h2 className="font-semibold">4. Profile and results</h2>
+                                    <p className="mt-1 text-sm text-muted-foreground">{status}</p>
+                                </div>
+                                <div className="rounded-lg border border-border px-3 py-2 text-sm">
+                                    <span className="font-semibold">{averageScore}</span> / 100 avg
+                                </div>
+                            </div>
+
+                            {error && <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
+
+                            {profile && (
+                                <div className="mt-4 space-y-3">
+                                    <p className="text-sm leading-relaxed text-muted-foreground">{profile.summary}</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {topSkills.map(skill => (
+                                            <span key={skill} className="rounded-lg bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{skill}</span>
+                                        ))}
                                     </div>
-                                    <div className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold">{job.match.score}/100</div>
                                 </div>
-                                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                                    {job.skills.map(skill => <span key={skill} className="rounded-full border border-border/30 px-2 py-1">{skill}</span>)}
-                                    {job.salaryRange && <span className="rounded-full border border-border/30 px-2 py-1">{job.salaryRange}</span>}
-                                    {job.employmentType && <span className="rounded-full border border-border/30 px-2 py-1">{job.employmentType}</span>}
+                            )}
+
+                            {result && (
+                                <div className="mt-5">
+                                    <p className="mb-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">{result.aiSummary}</p>
+                                    <div className="grid gap-3">
+                                        {result.rankedJobs.slice(0, 30).map(job => (
+                                            <article key={job.id} className="rounded-lg border border-border p-4">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div>
+                                                        <h3 className="font-semibold">{job.title}</h3>
+                                                        <p className="mt-1 text-sm text-muted-foreground">{job.company} · {job.location}</p>
+                                                    </div>
+                                                    <span className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                                                        {job.match.score}% match
+                                                    </span>
+                                                </div>
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {job.match.reasons.slice(0, 4).map(reason => (
+                                                        <span key={reason} className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground">{reason}</span>
+                                                    ))}
+                                                </div>
+                                                <a
+                                                    href={job.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary"
+                                                >
+                                                    Open listing <ExternalLink className="h-4 w-4" />
+                                                </a>
+                                            </article>
+                                        ))}
+                                    </div>
                                 </div>
-                                <a href={job.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-primary">Open listing</a>
-                            </article>
-                        ))}
+                            )}
+                        </section>
                     </div>
                 </section>
             </div>

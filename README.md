@@ -1,27 +1,32 @@
 # Job Finder Plugin for Tengra
 
-AI-powered job search and CV analysis plugin for the Tengra desktop assistant.
+AI-assisted CV profiling and job search for the Tengra desktop assistant.
 
-## Features
+## Flow
 
-- **CV Analysis**: Personalized ATS scoring and improvement suggestions.
-- **Global Job Search**: Scrapes major job boards across multiple countries.
-- **AI-Powered Matching**: Uses LLMs to find the best fit for your profile.
+1. Select a Tengra model.
+2. Load an existing CV PDF or create one from the form.
+3. Extract a candidate profile from the CV with Tengra's generic AI bridge.
+4. Search jobs for selected countries through the local `jobspy-ts` adapter layer.
+5. Rank results against the extracted profile and show match reasons.
 
-## Installation
+## Architecture
 
-This plugin can be installed via the Tengra Marketplace.
+- `src/ui/JobFinderView.tsx`: step-based plugin UI.
+- `src/services/tengraAiClient.ts`: generic Tengra model and chat bridge.
+- `src/services/cvService.ts`: CV text, profile extraction fallback, PDF export.
+- `src/services/jobService.ts`: multi-country search, normalization, ranking.
+- `src/lib/jobspy-ts`: local scraper adapter layer.
+
+The plugin does not require a plugin-specific Tengra core bridge. It uses generic capabilities declared in `package.json`: filesystem, network, AI, UI panel, and commands.
 
 ## Development
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Build the extension:
-   ```bash
-   npm run build
-   ```
+```bash
+npm install
+npm run build
+npx tsc --noEmit
+```
 
 ## License
 
