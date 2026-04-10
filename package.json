@@ -1,0 +1,31 @@
+{
+  "name": "job-finder-plugin",
+  "version": "1.0.0",
+  "description": "Job Search and CV Analysis Plugin for Tengra",
+  "author": {
+    "name": "TengraStudio"
+  },
+  "main": "./dist/extension.js",
+  "tengra": {
+    "id": "tengrastudio.job-finder",
+    "contributes": {
+      "views": [
+        {
+          "id": "job-finder.main",
+          "title": "Job Finder",
+          "type": "sidebar",
+          "icon": "Briefcase"
+        }
+      ]
+    },
+    "activationEvents": [
+      { "type": "onStartup" }
+    ]
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
