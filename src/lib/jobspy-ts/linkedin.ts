@@ -21,21 +21,17 @@ export class LinkedInScraper extends BaseScraper {
             if (!response.ok) return [];
 
             const html = await response.text();
-            return this.parseHtml(html, limit);
+            return this.parseLinkedInHtml(html, limit);
         } catch (error) {
             console.error('LinkedIn scraping failed:', error);
             return [];
         }
     }
 
-    private parseHtml(html: string, limit: number): ScrapedJob[] {
+    private parseLinkedInHtml(html: string, limit: number): ScrapedJob[] {
         const jobs: ScrapedJob[] = [];
-        // Note: In a real browser environment, we'd use DOMParser. 
-        // For a desktop plugin, we might need a regex-based or manual parser if DOMParser isn't available,
-        // but since this is a React UI component, DOMParser is available.
-
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        const doc = this.parseHtml(html);
+        if (!doc) return jobs;
         const items = doc.querySelectorAll('li');
 
         items.forEach((item, index) => {

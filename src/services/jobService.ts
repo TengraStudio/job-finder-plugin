@@ -34,7 +34,9 @@ export async function searchAndRankJobs(
             searchTerm,
             location: country,
             limit: preferences.limitPerCountry,
-            remoteOnly: preferences.remotePreference === 'remote'
+            remoteOnly: preferences.remotePreference === 'remote',
+            country,
+            sites: preferences.sites
         }))
     );
 
@@ -60,7 +62,7 @@ export async function searchAndRankJobs(
             employmentType: item.job_type,
             postedAt: item.date_posted,
             remote: isRemote(item.title, item.location, item.description),
-            skills: extractSkills(item.description, profile),
+            skills: item.skills?.length ? item.skills : extractSkills(item.description, profile),
             match: { score: 0, reasons: [], fit: 'blocked' }
         });
     });

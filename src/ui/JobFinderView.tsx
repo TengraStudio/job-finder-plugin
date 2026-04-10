@@ -50,6 +50,19 @@ const remoteOptions: Array<{ value: RemotePreference; label: string }> = [
     { value: 'on-site', label: 'On-site' }
 ];
 
+const siteOptions = [
+    { id: 'indeed', label: 'Indeed' },
+    { id: 'linkedin', label: 'LinkedIn' },
+    { id: 'zip_recruiter', label: 'ZipRecruiter' },
+    { id: 'glassdoor', label: 'Glassdoor' },
+    { id: 'google', label: 'Google Jobs' },
+    { id: 'bayt', label: 'Bayt' },
+    { id: 'naukri', label: 'Naukri' },
+    { id: 'bdjobs', label: 'BDJobs' },
+    { id: 'remotive', label: 'Remotive' },
+    { id: 'remoteok', label: 'RemoteOK' }
+];
+
 function fieldClass(): string {
     return 'w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary';
 }
@@ -69,6 +82,7 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
     const [targetRole, setTargetRole] = useState('');
     const [remotePreference, setRemotePreference] = useState<RemotePreference>('any');
     const [limitPerCountry, setLimitPerCountry] = useState(25);
+    const [selectedSites, setSelectedSites] = useState<string[]>(() => siteOptions.map(site => site.id));
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState('Ready');
     const [error, setError] = useState<string | null>(null);
@@ -99,6 +113,16 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
 
     const updateDraft = (key: keyof CvDraft, value: string) => {
         setCvDraft(prev => ({ ...prev, [key]: value }));
+    };
+
+    const toggleSite = (siteId: string) => {
+        setSelectedSites(prev => {
+            if (prev.includes(siteId)) {
+                const next = prev.filter(id => id !== siteId);
+                return next.length === 0 ? prev : next;
+            }
+            return [...prev, siteId];
+        });
     };
 
     const loadPdf = async () => {
@@ -172,7 +196,8 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
                 countries: mergeSearchCountries(countriesInput, nextProfile),
                 targetRole: targetRole || nextProfile.targetRoles[0] || '',
                 remotePreference,
-                limitPerCountry
+                limitPerCountry,
+                sites: selectedSites
             };
 
             setStatus(`Searching jobs in ${preferences.countries.join(', ') || 'Worldwide'}`);
@@ -353,6 +378,30 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
                                         value={limitPerCountry}
                                         onChange={event => setLimitPerCountry(Number(event.target.value) || 25)}
                                     />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                        <label className={labelClass()}>Sources</label>
+                                        <button
+                                            type="button"
+                                            className="text-xs font-semibold text-primary"
+                                            onClick={() => setSelectedSites(siteOptions.map(site => site.id))}
+                                        >
+                                            Select all
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {siteOptions.map(site => (
+                                            <button
+                                                type="button"
+                                                key={site.id}
+                                                onClick={() => toggleSite(site.id)}
+                                                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${selectedSites.includes(site.id) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                                            >
+                                                {site.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </section>

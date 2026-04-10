@@ -54,6 +54,7 @@ export interface SearchPreferences {
     targetRole: string;
     remotePreference: RemotePreference;
     limitPerCountry: number;
+    sites: string[];
 }
 
 export interface SelectedModel {
