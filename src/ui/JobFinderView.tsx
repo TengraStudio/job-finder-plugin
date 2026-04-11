@@ -112,6 +112,18 @@ function selectedModelValue(model: SelectedModel | null): string {
     return model ? `${model.provider}::${model.model}` : '';
 }
 
+function resolveSelectedPath(
+    value: string | { success?: boolean; path?: string } | null | undefined
+): string | null {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (value && typeof value === 'object' && typeof value.path === 'string' && value.path.trim().length > 0) {
+        return value.path;
+    }
+    return null;
+}
+
 function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
     const { className, variant = 'default', ...buttonProps } = props;
     return (
@@ -181,46 +193,9 @@ function Stepper({ activeStep }: { activeStep: StepId }) {
         </div>
     );
 }
-
-function CvIntakePanel({ cvMode, pdfPath }: { cvMode: CvMode; pdfPath: string | null }) {
-    return (
-        <aside className="grid gap-4 rounded-md border border-border bg-muted/40 p-4">
-            <div className="flex items-start gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                    <FileSearch className="h-5 w-5" />
-                </div>
-                <div>
-                    <h3 className="text-base font-semibold">Candidate intake</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">Bring an existing CV or generate a structured one before model analysis.</p>
-                </div>
-            </div>
-            <div className="grid gap-2">
-                {intakeHighlights.map(item => {
-                    const Icon = item.icon;
-                    return (
-                        <div key={item.label} className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
-                            <span className="inline-flex items-center gap-2 text-sm font-medium">
-                                <Icon className="h-4 w-4 text-primary" />
-                                {item.label}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{item.value}</span>
-                        </div>
-                    );
-                })}
-            </div>
-            <div className="rounded-md border border-border bg-background p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">Current mode</span>
-                    <Badge>{cvMode === 'pdf' ? 'Existing PDF' : 'Create CV'}</Badge>
-                </div>
-                <p className="break-all text-xs text-muted-foreground">{pdfPath ?? 'No CV selected yet.'}</p>
-            </div>
-        </aside>
-    );
-}
-
 async function readPdfText(filePath: string): Promise<string> {
-    const result = await window.electron?.readPdf?.(filePath);
+    const bridge = window.electron?.readPdf ?? window.electron?.files?.readPdf;
+    const result = await bridge?.(filePath);
     if (!result) {
         throw new Error('Tengra PDF reader bridge is not available.');
     }
@@ -350,10 +325,14 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
 
     const loadPdf = async () => {
         setError(null);
-        const filePath = await window.electron?.files?.selectFile?.({
+        const selectedFile = await (window.electron?.files?.selectFile?.({
             title: 'Select CV PDF',
             filters: [{ name: 'PDF', extensions: ['pdf'] }]
-        });
+        }) ?? window.electron?.selectFile?.({
+            title: 'Select CV PDF',
+            filters: [{ name: 'PDF', extensions: ['pdf'] }]
+        }));
+        const filePath = resolveSelectedPath(selectedFile);
         if (!filePath) return;
 
         setLoading(true);
@@ -467,7 +446,6 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
 
                 {activeStep === 'cv' && (
                     <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-                        <CvIntakePanel cvMode={cvMode} pdfPath={pdfPath} />
                         <Card className="grid gap-5">
                             <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>

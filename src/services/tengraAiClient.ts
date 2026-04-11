@@ -88,6 +88,11 @@ function normalizeModels(models: AvailableModel[]): AvailableModel[] {
 }
 
 export async function listTengraModels(): Promise<AvailableModel[]> {
+    const proxyModels = await window.electron?.getProxyModels?.().catch(() => null);
+    if (proxyModels?.data && proxyModels.data.length > 0) {
+        return normalizeModels(proxyModels.data);
+    }
+
     const models = await window.electron?.getModels?.().catch(() => []);
     if (Array.isArray(models) && models.length > 0) {
         return normalizeModels(models);

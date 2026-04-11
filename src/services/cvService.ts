@@ -1,6 +1,18 @@
 import type { CvDraft, CvProfile, RemotePreference, SelectedModel } from '../types';
 import { refineCvProfileWithAi } from './tengraAiClient';
 
+function resolveSelectedPath(
+    value: string | { success?: boolean; path?: string } | null | undefined
+): string | null {
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (value && typeof value === 'object' && typeof value.path === 'string' && value.path.trim().length > 0) {
+        return value.path;
+    }
+    return null;
+}
+
 function unique(values: string[]): string[] {
     return Array.from(new Set(values.map(value => value.trim()).filter(Boolean)));
 }
@@ -174,7 +186,8 @@ export function cvDraftToHtml(draft: CvDraft): string {
 }
 
 export async function exportDraftToPdf(draft: CvDraft): Promise<string> {
-    const directory = await (window.electron?.files?.selectDirectory?.() ?? window.electron?.selectDirectory?.());
+    const directoryResult = await (window.electron?.files?.selectDirectory?.() ?? window.electron?.selectDirectory?.());
+    const directory = resolveSelectedPath(directoryResult);
     if (!directory) throw new Error('Please choose a folder for the CV PDF.');
 
     const safeName = (draft.fullName || 'cv').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cv';

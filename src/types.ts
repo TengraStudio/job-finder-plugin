@@ -100,16 +100,19 @@ export interface TengraMessage {
 
 export interface TengraElectron {
     files?: {
-        selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
-        selectDirectory?: () => Promise<string | null>;
+        selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | { success?: boolean; path?: string } | null>;
+        selectDirectory?: () => Promise<string | { success?: boolean; path?: string } | null>;
+        readPdf?: (path: string) => Promise<{ success: boolean; text?: string; error?: string }>;
     };
     readPdf?: (path: string) => Promise<{ success: boolean; text?: string; error?: string }>;
-    selectDirectory?: () => Promise<string | null>;
+    selectDirectory?: () => Promise<string | { success?: boolean; path?: string } | null>;
+    selectFile?: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | { success?: boolean; path?: string } | null>;
     modelRegistry?: {
         getInstalledModels: () => Promise<AvailableModel[]>;
         getAllModels?: () => Promise<AvailableModel[]>;
     };
     getModels?: () => Promise<AvailableModel[] | { antigravityError?: string }>;
+    getProxyModels?: () => Promise<{ data?: AvailableModel[]; antigravityError?: string }>;
     session?: {
         conversation?: {
             complete: (request: {
