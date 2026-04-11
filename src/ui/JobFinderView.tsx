@@ -112,18 +112,6 @@ function selectedModelValue(model: SelectedModel | null): string {
     return model ? `${model.provider}::${model.model}` : '';
 }
 
-function resolveSelectedPath(
-    value: string | { success?: boolean; path?: string } | null | undefined
-): string | null {
-    if (typeof value === 'string') {
-        return value;
-    }
-    if (value && typeof value === 'object' && typeof value.path === 'string' && value.path.trim().length > 0) {
-        return value.path;
-    }
-    return null;
-}
-
 function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
     const { className, variant = 'default', ...buttonProps } = props;
     return (
@@ -193,16 +181,34 @@ function Stepper({ activeStep }: { activeStep: StepId }) {
         </div>
     );
 }
-async function readPdfText(filePath: string): Promise<string> {
-    const bridge = window.electron?.readPdf ?? window.electron?.files?.readPdf;
-    const result = await bridge?.(filePath);
-    if (!result) {
-        throw new Error('Tengra PDF reader bridge is not available.');
+
+async function readPdfText(file: File): Promise<string> {
+    const pdfjs = await import('pdfjs-dist');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const documentTask = pdfjs.getDocument({ data: bytes });
+    const pdf = await documentTask.promise;
+    const pageTexts: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+            .map((item: { str?: string }) => (typeof item.str === 'string' ? item.str : ''))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+
+        if (pageText) {
+            pageTexts.push(pageText);
+        }
     }
-    if (!result.success || !result.text?.trim()) {
-        throw new Error(result.error ?? 'The selected PDF did not return readable text.');
+
+    const text = pageTexts.join('\n\n').trim();
+    if (!text) {
+        throw new Error('The selected PDF did not contain readable text.');
     }
-    return result.text;
+
+    return text;
 }
 
 function TengraModelSelector({ models, selectedModel, onSelect }: ModelSelectorProps) {
@@ -323,24 +329,16 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
         });
     };
 
-    const loadPdf = async () => {
+    const loadPdf = async (file: File | null) => {
         setError(null);
-        const selectedFile = await (window.electron?.files?.selectFile?.({
-            title: 'Select CV PDF',
-            filters: [{ name: 'PDF', extensions: ['pdf'] }]
-        }) ?? window.electron?.selectFile?.({
-            title: 'Select CV PDF',
-            filters: [{ name: 'PDF', extensions: ['pdf'] }]
-        }));
-        const filePath = resolveSelectedPath(selectedFile);
-        if (!filePath) return;
+        if (!file) return;
 
         setLoading(true);
         setStatus('Reading PDF');
         try {
-            const parsed = await readPdfText(filePath);
+            const parsed = await readPdfText(file);
             setCvText(parsed);
-            setPdfPath(filePath);
+            setPdfPath(file.name);
             setCvMode('pdf');
             setStatus('PDF loaded');
             setActiveStep('search');
@@ -462,7 +460,23 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
                             </div>
                             {cvMode === 'pdf' ? (
                                 <div className="grid gap-4">
-                                    <Button type="button" variant="outline" onClick={loadPdf} disabled={loading}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}Load PDF</Button>
+                                    <label className={cn(
+                                        'inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-semibold transition hover:bg-muted',
+                                        loading && 'pointer-events-none opacity-50'
+                                    )}>
+                                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                                        Load PDF
+                                        <input
+                                            type="file"
+                                            accept="application/pdf,.pdf"
+                                            className="hidden"
+                                            onChange={event => {
+                                                const file = event.target.files?.[0] ?? null;
+                                                void loadPdf(file);
+                                                event.currentTarget.value = '';
+                                            }}
+                                        />
+                                    </label>
                                     <Textarea value={cvText} onChange={event => setCvText(event.target.value)} placeholder="PDF text will appear here. You can also paste CV text for testing." className="min-h-56 resize-y" />
                                     <Button type="button" disabled={!cvText.trim()} onClick={() => setActiveStep('search')}>Continue with this CV <ArrowRight className="h-4 w-4" /></Button>
                                 </div>
