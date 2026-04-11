@@ -7,8 +7,12 @@ import {
     ChevronDown,
     ExternalLink,
     FileText,
+    FileSearch,
+    Gauge,
+    Layers,
     Loader2,
     Search,
+    ShieldCheck,
     Sparkles,
     Upload
 } from 'lucide-react';
@@ -86,6 +90,12 @@ const steps: Array<{ id: StepId; title: string; description: string }> = [
     { id: 'results', title: 'Matches', description: 'Ranked roles' }
 ];
 
+const intakeHighlights = [
+    { icon: FileText, label: 'CV intake', value: 'PDF or builder' },
+    { icon: ShieldCheck, label: 'Parsing', value: 'Local bridge' },
+    { icon: Layers, label: 'Next step', value: 'Model + sources' }
+];
+
 function cn(...values: Array<string | false | null | undefined>): string {
     return values.filter(Boolean).join(' ');
 }
@@ -120,6 +130,10 @@ function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant
 
 function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
     return <section {...props} className={cn('rounded-md border border-border bg-card p-5 text-card-foreground shadow-sm', className)} />;
+}
+
+function Badge({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
+    return <span {...props} className={cn('inline-flex items-center rounded-md border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground', className)} />;
 }
 
 function FieldLabel({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
@@ -166,6 +180,54 @@ function Stepper({ activeStep }: { activeStep: StepId }) {
             ))}
         </div>
     );
+}
+
+function CvIntakePanel({ cvMode, pdfPath }: { cvMode: CvMode; pdfPath: string | null }) {
+    return (
+        <aside className="grid gap-4 rounded-md border border-border bg-muted/40 p-4">
+            <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                    <FileSearch className="h-5 w-5" />
+                </div>
+                <div>
+                    <h3 className="text-base font-semibold">Candidate intake</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">Bring an existing CV or generate a structured one before model analysis.</p>
+                </div>
+            </div>
+            <div className="grid gap-2">
+                {intakeHighlights.map(item => {
+                    const Icon = item.icon;
+                    return (
+                        <div key={item.label} className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+                            <span className="inline-flex items-center gap-2 text-sm font-medium">
+                                <Icon className="h-4 w-4 text-primary" />
+                                {item.label}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{item.value}</span>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="rounded-md border border-border bg-background p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">Current mode</span>
+                    <Badge>{cvMode === 'pdf' ? 'Existing PDF' : 'Create CV'}</Badge>
+                </div>
+                <p className="break-all text-xs text-muted-foreground">{pdfPath ?? 'No CV selected yet.'}</p>
+            </div>
+        </aside>
+    );
+}
+
+async function readPdfText(filePath: string): Promise<string> {
+    const result = await window.electron?.readPdf?.(filePath);
+    if (!result) {
+        throw new Error('Tengra PDF reader bridge is not available.');
+    }
+    if (!result.success || !result.text?.trim()) {
+        throw new Error(result.error ?? 'The selected PDF did not return readable text.');
+    }
+    return result.text;
 }
 
 function TengraModelSelector({ models, selectedModel, onSelect }: ModelSelectorProps) {
@@ -297,8 +359,7 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
         setLoading(true);
         setStatus('Reading PDF');
         try {
-            const parsed = await window.electron?.files?.readPdf?.(filePath);
-            if (!parsed?.trim()) throw new Error('The selected PDF did not return readable text.');
+            const parsed = await readPdfText(filePath);
             setCvText(parsed);
             setPdfPath(filePath);
             setCvMode('pdf');
@@ -395,50 +456,57 @@ export const JobFinderView: React.FC<Record<string, unknown>> = () => {
                             <p className="text-sm text-muted-foreground">Prepare a CV, select any Tengra model, then search ranked roles.</p>
                         </div>
                     </div>
-                    <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">{status}</div>
+                    <div className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                        <Gauge className="h-4 w-4 text-primary" />
+                        {status}
+                    </div>
                 </header>
 
                 <Stepper activeStep={activeStep} />
                 {error && <Card className="border-destructive/40 bg-destructive/10 text-destructive"><p className="text-sm font-medium">{error}</p></Card>}
 
                 {activeStep === 'cv' && (
-                    <Card className="grid gap-5">
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-semibold text-primary">Step 1</p>
-                                <h2 className="mt-1 text-2xl font-semibold">Start with a CV</h2>
-                                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Select an existing PDF. If you do not have one ready, build a clean PDF here from structured inputs.</p>
-                            </div>
-                            {pdfPath && <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-primary" />{pdfPath}</span>}
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                            <Button type="button" variant={cvMode === 'pdf' ? 'default' : 'outline'} onClick={() => setCvMode('pdf')}><Upload className="h-4 w-4" /> Existing PDF</Button>
-                            <Button type="button" variant={cvMode === 'builder' ? 'default' : 'outline'} onClick={() => setCvMode('builder')}><FileText className="h-4 w-4" /> Create CV</Button>
-                        </div>
-                        {cvMode === 'pdf' ? (
-                            <div className="grid gap-4">
-                                <Button type="button" variant="outline" onClick={loadPdf} disabled={loading}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}Load PDF</Button>
-                                <Textarea value={cvText} onChange={event => setCvText(event.target.value)} placeholder="PDF text will appear here. You can also paste CV text for testing." className="min-h-56 resize-y" />
-                                <Button type="button" disabled={!cvText.trim()} onClick={() => setActiveStep('search')}>Continue with this CV <ArrowRight className="h-4 w-4" /></Button>
-                            </div>
-                        ) : (
-                            <div className="grid gap-4">
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    <Input placeholder="Full name" value={cvDraft.fullName} onChange={event => updateDraft('fullName', event.target.value)} />
-                                    <Input placeholder="Headline" value={cvDraft.headline} onChange={event => updateDraft('headline', event.target.value)} />
-                                    <Input placeholder="Email" value={cvDraft.email} onChange={event => updateDraft('email', event.target.value)} />
-                                    <Input placeholder="Phone" value={cvDraft.phone} onChange={event => updateDraft('phone', event.target.value)} />
-                                    <Input className="md:col-span-2" placeholder="Location" value={cvDraft.location} onChange={event => updateDraft('location', event.target.value)} />
+                    <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+                        <CvIntakePanel cvMode={cvMode} pdfPath={pdfPath} />
+                        <Card className="grid gap-5">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-semibold text-primary">Step 1</p>
+                                    <h2 className="mt-1 text-2xl font-semibold">Start with a CV</h2>
+                                    <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Select an existing PDF. If you do not have one ready, build a clean PDF here from structured inputs.</p>
                                 </div>
-                                <Textarea className="min-h-24" placeholder="Professional summary" value={cvDraft.summary} onChange={event => updateDraft('summary', event.target.value)} />
-                                <Textarea className="min-h-24" placeholder="Skills, comma separated" value={cvDraft.skills} onChange={event => updateDraft('skills', event.target.value)} />
-                                <Textarea className="min-h-32" placeholder="Experience" value={cvDraft.experience} onChange={event => updateDraft('experience', event.target.value)} />
-                                <Textarea className="min-h-24" placeholder="Education" value={cvDraft.education} onChange={event => updateDraft('education', event.target.value)} />
-                                <Input placeholder="Links" value={cvDraft.links} onChange={event => updateDraft('links', event.target.value)} />
-                                <Button type="button" onClick={buildPdfFromInputs} disabled={loading || !draftText.trim()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}Create CV PDF and continue</Button>
+                                {pdfPath && <Badge className="max-w-full gap-2"><CheckCircle2 className="h-4 w-4 text-primary" />Ready</Badge>}
                             </div>
-                        )}
-                    </Card>
+
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <Button type="button" variant={cvMode === 'pdf' ? 'default' : 'outline'} onClick={() => setCvMode('pdf')}><Upload className="h-4 w-4" /> Existing PDF</Button>
+                                <Button type="button" variant={cvMode === 'builder' ? 'default' : 'outline'} onClick={() => setCvMode('builder')}><FileText className="h-4 w-4" /> Create CV</Button>
+                            </div>
+                            {cvMode === 'pdf' ? (
+                                <div className="grid gap-4">
+                                    <Button type="button" variant="outline" onClick={loadPdf} disabled={loading}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}Load PDF</Button>
+                                    <Textarea value={cvText} onChange={event => setCvText(event.target.value)} placeholder="PDF text will appear here. You can also paste CV text for testing." className="min-h-56 resize-y" />
+                                    <Button type="button" disabled={!cvText.trim()} onClick={() => setActiveStep('search')}>Continue with this CV <ArrowRight className="h-4 w-4" /></Button>
+                                </div>
+                            ) : (
+                                <div className="grid gap-4">
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <Input placeholder="Full name" value={cvDraft.fullName} onChange={event => updateDraft('fullName', event.target.value)} />
+                                        <Input placeholder="Headline" value={cvDraft.headline} onChange={event => updateDraft('headline', event.target.value)} />
+                                        <Input placeholder="Email" value={cvDraft.email} onChange={event => updateDraft('email', event.target.value)} />
+                                        <Input placeholder="Phone" value={cvDraft.phone} onChange={event => updateDraft('phone', event.target.value)} />
+                                        <Input className="md:col-span-2" placeholder="Location" value={cvDraft.location} onChange={event => updateDraft('location', event.target.value)} />
+                                    </div>
+                                    <Textarea className="min-h-24" placeholder="Professional summary" value={cvDraft.summary} onChange={event => updateDraft('summary', event.target.value)} />
+                                    <Textarea className="min-h-24" placeholder="Skills, comma separated" value={cvDraft.skills} onChange={event => updateDraft('skills', event.target.value)} />
+                                    <Textarea className="min-h-32" placeholder="Experience" value={cvDraft.experience} onChange={event => updateDraft('experience', event.target.value)} />
+                                    <Textarea className="min-h-24" placeholder="Education" value={cvDraft.education} onChange={event => updateDraft('education', event.target.value)} />
+                                    <Input placeholder="Links" value={cvDraft.links} onChange={event => updateDraft('links', event.target.value)} />
+                                    <Button type="button" onClick={buildPdfFromInputs} disabled={loading || !draftText.trim()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}Create CV PDF and continue</Button>
+                                </div>
+                            )}
+                        </Card>
+                    </div>
                 )}
 
                 {activeStep === 'search' && (

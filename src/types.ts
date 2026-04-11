@@ -100,10 +100,10 @@ export interface TengraMessage {
 
 export interface TengraElectron {
     files?: {
-        readPdf: (path: string) => Promise<string>;
         selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
         selectDirectory?: () => Promise<string | null>;
     };
+    readPdf?: (path: string) => Promise<{ success: boolean; text?: string; error?: string }>;
     selectDirectory?: () => Promise<string | null>;
     modelRegistry?: {
         getInstalledModels: () => Promise<AvailableModel[]>;
