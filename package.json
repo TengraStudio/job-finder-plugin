@@ -1,6 +1,6 @@
 {
   "name": "job-finder-plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "license": "MIT",
   "description": "Job Search and CV Analysis Plugin for Tengra",
   "author": {
@@ -47,7 +47,7 @@
   "scripts": {
     "build": "npm run build:extension && npm run build:ui",
     "build:extension": "esbuild src/extension.ts --bundle --format=cjs --platform=node --target=node18 --outfile=dist/extension.js",
-    "build:ui": "esbuild src/ui/JobFinderView.tsx --bundle --format=esm --platform=browser --target=es2020 --outfile=dist/ui/job-finder-view.js"
+    "build:ui": "esbuild src/ui/JobFinderView.tsx --bundle --format=esm --platform=browser --target=es2020 --alias:react=./src/ui/tengra-react --alias:react-dom=./src/ui/tengra-react-dom --outfile=dist/ui/job-finder-view.js"
   },
   "dependencies": {
     "lucide-react": "^0.563.0",

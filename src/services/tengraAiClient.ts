@@ -55,16 +55,51 @@ function normalizeProfile(value: unknown): Partial<CvProfile> | null {
     };
 }
 
+function modelProvider(model: AvailableModel): string {
+    return model.providerCategory || model.sourceProvider || model.provider || 'ollama';
+}
+
+function modelId(model: AvailableModel): string {
+    return model.id || model.name || model.path || model.localPath || '';
+}
+
+function normalizeModels(models: AvailableModel[]): AvailableModel[] {
+    const seen = new Set<string>();
+    const normalized: AvailableModel[] = [];
+
+    for (const model of models) {
+        const id = modelId(model).trim();
+        if (!id) continue;
+
+        const provider = modelProvider(model).trim() || 'ollama';
+        const key = `${provider}:${id}`.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        normalized.push({
+            ...model,
+            id,
+            name: model.name || id,
+            provider
+        });
+    }
+
+    return normalized.sort((a, b) => `${a.provider}:${a.name ?? a.id}`.localeCompare(`${b.provider}:${b.name ?? b.id}`));
+}
+
 export async function listTengraModels(): Promise<AvailableModel[]> {
+    const models = await window.electron?.getModels?.().catch(() => []);
+    if (Array.isArray(models) && models.length > 0) {
+        return normalizeModels(models);
+    }
+
     const registryModels = await window.electron?.modelRegistry?.getInstalledModels?.().catch(() => []);
-    if (registryModels && registryModels.length > 0) return registryModels;
+    if (registryModels && registryModels.length > 0) return normalizeModels(registryModels);
 
     const allRegistryModels = await window.electron?.modelRegistry?.getAllModels?.().catch(() => []);
-    if (allRegistryModels && allRegistryModels.length > 0) return allRegistryModels;
+    if (allRegistryModels && allRegistryModels.length > 0) return normalizeModels(allRegistryModels);
 
-    const models = await window.electron?.getModels?.().catch(() => []);
-    if (!Array.isArray(models)) return [];
-    return models;
+    return [];
 }
 
 export async function completeWithTengraAi(

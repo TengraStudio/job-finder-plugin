@@ -66,8 +66,17 @@ export interface AvailableModel {
     id: string;
     name?: string;
     provider: string;
+    providerCategory?: string;
+    sourceProvider?: string;
     path?: string;
     localPath?: string;
+    quotaInfo?: {
+        remainingQuota?: number;
+        totalQuota?: number;
+        resetTime?: string;
+        percentage?: number;
+    };
+    installed?: boolean;
 }
 
 export interface JobFinderPipelineResult {
@@ -124,5 +133,12 @@ declare global {
     interface Window {
         Tengra?: TengraBridge;
         electron?: TengraElectron;
+        React: typeof React;
+        ReactDOM: {
+            createPortal?: typeof import('react-dom').createPortal;
+            flushSync?: typeof import('react-dom').flushSync;
+            unstable_batchedUpdates?: typeof import('react-dom').unstable_batchedUpdates;
+            version?: string;
+        };
     }
 }
